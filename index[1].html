@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The Village That Looks Back</title>
+<link href="https://fonts.googleapis.com/css2?family=IM+Fell+English&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#07050a;--ink:#9a9080;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:light){:root:not([data-theme="dark"]){--bg:#d8cfba;--ink:#4a4038}}
+:root[data-theme="dark"]{--bg:#07050a}
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);display:flex;flex-direction:column;align-items:center;justify-content:center;font:15px 'IM Fell English',Georgia,serif;overflow:hidden}
+canvas{width:min(100vw,160vh);aspect-ratio:960/600;display:block;touch-action:manipulation;cursor:pointer;max-height:92vh}
+.bar{padding:6px;display:flex;gap:14px;align-items:center}
+button{font:inherit;color:inherit;background:transparent;border:1px solid var(--ink);padding:4px 12px;cursor:pointer;min-height:36px}
+button:focus-visible{outline:3px solid #e8c864;outline-offset:2px}
+</style></head><body>
+<canvas id="c" width="960" height="600" aria-label="The Village That Looks Back game screen"></canvas>
+<div class="bar"><button id="mu">Sound: on</button><span>Click or tap to play. Tab swaps lenses.</span></div>
+<script>
+/*MATHS*/
+const S2=Math.SQRT1_2,HG=[S2,0,S2,0,S2,0,-S2,0],XG=[0,0,1,0,1,0,0,0],ZG=[1,0,0,0,0,0,-1,0];
+const rnd=()=>crypto.getRandomValues(new Uint32Array(1))[0]/4294967296;
+class Reg{constructor(n){this.n=n;this.re=new Float64Array(1<<n);this.im=new Float64Array(1<<n);this.re[0]=1}
+ g(k,m){const b=1<<k,R=this.re,I=this.im;for(let i=0;i<R.length;i++){if(i&b)continue;const j=i|b,a=R[i],ai=I[i],c=R[j],ci=I[j];
+  R[i]=m[0]*a-m[1]*ai+m[2]*c-m[3]*ci;I[i]=m[0]*ai+m[1]*a+m[2]*ci+m[3]*c;R[j]=m[4]*a-m[5]*ai+m[6]*c-m[7]*ci;I[j]=m[4]*ai+m[5]*a+m[6]*ci+m[7]*c}}
+ link(c,t){const cb=1<<c,tb=1<<t;for(let i=0;i<this.re.length;i++)if((i&cb)&&!(i&tb)){const j=i|tb;
+  [this.re[i],this.re[j]]=[this.re[j],this.re[i]];[this.im[i],this.im[j]]=[this.im[j],this.im[i]]}}
+ p1(k){let p=0;for(let i=0;i<this.re.length;i++)if(i&(1<<k))p+=this.re[i]**2+this.im[i]**2;return p}
+ look(k,lens){if(lens==="X")this.g(k,HG);const p=this.p1(k),o=rnd()<p?1:0,b=1<<k,nr=Math.sqrt(o?p:1-p);
+  for(let i=0;i<this.re.length;i++){if(!!(i&b)!==!!o){this.re[i]=0;this.im[i]=0}else{this.re[i]/=nr;this.im[i]/=nr}}
+  if(lens==="X")this.g(k,HG);return o}
+ w(i){return this.re[i]**2+this.im[i]**2}}
+function selftest(){const T=[],ok=(n,v)=>T.push([n,!!v]),run=(f,n=300)=>{let s=0;for(let i=0;i<n;i++)s+=f();return s};
+ let r=new Reg(1);r.g(0,HG);r.g(0,HG);ok("two mirrors return home",Math.abs(r.re[0]-1)<1e-12);
+ ok("dusk lens is certain on a dusk figure",run(()=>{const r=new Reg(1);r.g(0,HG);return r.look(0,"X")})===0);
+ let a=run(()=>{const r=new Reg(1);r.g(0,HG);return r.look(0,"Z")});ok("plain lens on it is a coin flip",a>90&&a<210);
+ ok("a second look repeats the first",run(()=>{const r=new Reg(1);r.g(0,HG);const x=r.look(0,"Z");return r.look(0,"Z")===x?1:0})===300);
+ ok("mirror, fog, mirror always arrives",run(()=>{const r=new Reg(1);r.g(0,HG);r.g(0,ZG);r.g(0,HG);return r.look(0,"Z")})===300);
+ a=run(()=>{const r=new Reg(1);r.g(0,HG);r.look(0,"Z");r.g(0,ZG);r.g(0,HG);return r.look(0,"Z")});ok("a look in the middle ruins it",a>90&&a<210);
+ for(const [la,lb,lo,hi] of [["Z","Z",300,300],["X","X",300,300],["Z","X",90,210]]){a=run(()=>{const r=new Reg(2);r.g(0,HG);r.link(0,1);return r.look(0,la)===r.look(1,lb)?1:0});ok(`twins ${la}/${lb} agree`,a>=lo&&a<=hi)}
+ r=new Reg(3);for(let i=0;i<3;i++)r.g(i,HG);r.look(1,"Z");ok("total stays one",Math.abs(r.re.reduce((s,v,i)=>s+v*v+r.im[i]**2,0)-1)<1e-12);
+ return T}
+/*END*/
+const W=960,HH=600,cv=document.getElementById("c"),x=cv.getContext("2d");
+const BONE="#e6ddc8",LAMP="#e8c864",BLOOD="#c2394b",INK="#0d0a0e",HUES=[.68,.76,.5,.6],RD={Z:["faces you","turns away"],X:["steps into the light","slips into shadow"]};
+let mode="title",lv=0,san=3,lens="Z",t=0,flash=0,flashC=BONE,shake=0,fade=0,fd=0,after=null,log=[],mouse=[-1,-1],click=null,ck=null,au=null,mute=false,drone=null;
+function seeded(s){return()=>{s|=0;s=s+0x6D2B79F5|0;let z=Math.imul(s^s>>>15,1|s);z=z+Math.imul(z^z>>>7,61|z)^z;return((z^z>>>14)>>>0)/4294967296}}
+function mkSky(h){const c=document.createElement("canvas");c.width=W;c.height=HH;const q=c.getContext("2d"),r=seeded(h*1000);
+ const gr=q.createLinearGradient(0,0,0,HH);gr.addColorStop(0,`hsl(${h*360},55%,8%)`);gr.addColorStop(1,`hsl(${h*360},45%,26%)`);q.fillStyle=gr;q.fillRect(0,0,W,HH);
+ q.fillStyle="#c8c8dc";for(let i=0;i<90;i++){q.fillRect(r()*W,r()*300,r()<.5?1:2,r()<.5?1:2)}
+ q.fillStyle="#3c3c50";q.beginPath();q.arc(760,110,62,0,7);q.fill();q.fillStyle="#e1dcc8";q.beginPath();q.arc(760,110,40,0,7);q.fill();
+ q.fillStyle="#0e0a14";q.beginPath();q.moveTo(0,HH);q.lineTo(0,440);for(let X=0;X<=W+60;X+=60)q.lineTo(X,400-28*Math.sin(X/90)-r()*14);q.lineTo(W,440);q.lineTo(W,HH);q.fill();
+ for(let X=30;X<W;X+=120){const hh=50+r()*45,y=405-16*Math.sin(X/90);q.fillStyle="#09070d";q.beginPath();q.moveTo(X,y);q.lineTo(X,y-hh);q.lineTo(X+38,y-hh-32);q.lineTo(X+76,y-hh);q.lineTo(X+76,y);q.fill();
+  if(r()<.6){q.fillStyle="#6e5a28";q.fillRect(X+28,y-hh+14,14,16)}}
+ q.fillStyle="#08060b";q.fillRect(0,430,W,HH);return c}
+const skies=HUES.map(mkSky),fog=Array.from({length:6},()=>[Math.random()*W,300+Math.random()*200,280+Math.random()*200,Math.random()*6]);
+const vg=x.createRadialGradient(W/2,HH/2,HH*.35,W/2,HH/2,W*.62);vg.addColorStop(0,"rgba(0,0,0,0)");vg.addColorStop(1,"rgba(0,0,0,.9)");
+function txt(s,n,c,X,Y,ctr,wrap){x.font=`${n}px 'IM Fell English',Georgia,serif`;x.fillStyle=c;x.textAlign=ctr?"center":"left";x.textBaseline="middle";let L=[s];
+ if(wrap){L=[];let cur="";for(const w of s.split(" ")){if(x.measureText(cur+" "+w).width>wrap){L.push(cur);cur=w}else cur=(cur+" "+w).trim()}L.push(cur)}
+ L.forEach((l,i)=>x.fillText(l,X,Y+i*n*1.05))}
+function ghost(cx,base,h,col,facing,veil,a=1,wob=0){x.save();x.globalAlpha=a;x.translate(cx+wob,base-h*1.25);const w=h*.36;x.fillStyle=col;
+ x.beginPath();x.moveTo(-w*.5,h*.35);x.lineTo(w*.5,h*.35);x.lineTo(w,h*1.25);x.lineTo(-w,h*1.25);x.fill();x.beginPath();x.arc(0,h*.24,h*.17,0,7);x.fill();
+ if(veil){x.fillStyle="#d2cdc3";x.beginPath();x.moveTo(-h*.2,h*.12);x.lineTo(h*.2,h*.12);x.lineTo(h*.3,h*.9);x.lineTo(-h*.3,h*.9);x.fill()}
+ else if(facing){x.fillStyle="#0a080c";for(const d of[-.07,.07]){x.beginPath();x.arc(d*h,h*.24,Math.max(2,h*.035),0,7);x.fill()}}
+ else{x.strokeStyle="#0a080c";x.lineWidth=2;x.beginPath();x.arc(0,h*.2,h*.1,0,Math.PI);x.stroke()}x.restore()}
+function heart(X,Y,f){x.fillStyle=x.strokeStyle=BLOOD;x.lineWidth=2;x.beginPath();x.moveTo(X,Y+7);x.lineTo(X-9,Y-1);x.lineTo(X-9,Y-6);x.lineTo(X-4,Y-9);x.lineTo(X,Y-5);x.lineTo(X+4,Y-9);x.lineTo(X+9,Y-6);x.lineTo(X+9,Y-1);x.closePath();f?x.fill():x.stroke()}
+function rr(r,fill,stroke,lw=2){x.beginPath();x.roundRect(r[0],r[1],r[2],r[3],6);if(fill){x.fillStyle=fill;x.fill()}if(stroke){x.strokeStyle=stroke;x.lineWidth=lw;x.stroke()}}
+const inR=(p,r)=>p&&p[0]>=r[0]&&p[0]<=r[0]+r[2]&&p[1]>=r[1]&&p[1]<=r[1]+r[3];
+const hit=r=>fd===0&&inR(ck,r);
+function btn(r,label,fn,on,dim,danger){const hov=!dim&&inR(mouse,r),col=danger?BLOOD:LAMP;rr(r,on?col:hov?"#3a2c3c":"#1e1620",dim?"#5a505a":col);
+ txt(label,22,on?INK:dim?"#6e646e":BONE,r[0]+r[2]/2,r[1]+r[3]/2,1);if(!dim&&hit(r)){ck=null;snd("click");fn()}}
+/* sound */
+function ac(){if(!au){au=new(window.AudioContext||window.webkitAudioContext)();drone=au.createGain();drone.gain.value=.05;drone.connect(au.destination);
+ for(const f of[55,82.5,110.25]){const o=au.createOscillator();o.frequency.value=f;o.connect(drone);o.start()}}if(au.state==="suspended")au.resume()}
+function tone(f,d,v,ty="sine"){if(mute||!au)return;const o=au.createOscillator(),g=au.createGain();o.type=ty;o.frequency.value=f;g.gain.value=v;g.gain.exponentialRampToValueAtTime(.0005,au.currentTime+d);o.connect(g);g.connect(au.destination);o.start();o.stop(au.currentTime+d)}
+function snd(k){if(k==="click"){tone(1800,.05,.08,"square");tone(300,.08,.05,"sawtooth")}else if(k==="thud")tone(60,.5,.3,"sawtooth");else if(k==="win"){tone(523,1,.12);tone(659,1.2,.1)}}
+document.getElementById("mu").onclick=()=>{mute=!mute;if(drone)drone.gain.value=mute?0:.05;document.getElementById("mu").textContent="Sound: "+(mute?"off":"on")};
+/* helpers */
+const say=m=>{log=[m,...log].slice(0,3)};
+function photo(reg,k,l){ck=null;const o=reg.look(k,l);flash=1;flashC=l==="Z"?BONE:"#ffbe5a";snd("click");return o}
+function go(fn){after=fn;fd=1}
+function hurt(m){san--;shake=.4;flash=.8;flashC=BLOOD;log=[m];snd("thud");if(san<=0)go(()=>{mode="dead"});else LV[lv].setup()}
+function win(){snd("win");if(lv<3)go(()=>{lv++;start()});else go(()=>{mode="end"})}
+function start(){san=3;lens="Z";mode="play";log=[];LV[lv].setup()}
+/* levels */
+const Sq={name:"The Square of Statues",lens:0,note:"Goal: ring the bell once all three statues are turned away. A statue only stays put after you photograph it.",
+ setup(){this.r=new Reg(3);for(let i=0;i<3;i++)this.r.g(i,HG);this.k=[null,null,null]},
+ draw(){for(let i=0;i<3;i++){const X=240+240*i;ghost(X,430,150,"#5f5c69",this.k[i]!==1,this.k[i]===null);txt(this.k[i]===null?"veiled":RD.Z[this.k[i]],24,LAMP,X,235,1);
+  if(hit([X-50,270,100,160])){this.k[i]=photo(this.r,i,"Z");say(`Flash. Statue ${i+1} ${RD.Z[this.k[i]]}.`)}
+  btn([X-65,450,130,38],"Spin vane",()=>{this.r.g(i,XG);if(this.k[i]!==null)this.k[i]^=1;say(`You spin the weathervane on statue ${i+1}.`)})}
+  btn([380,506,200,46],"Ring the bell",()=>{const o=[0,1,2].map(i=>this.r.look(i,"Z"));o.every(v=>v)?win():hurt("The bell tolls, but at least one statue still faced you.")},0,0,1)}};
+const Wi={name:"Windows That Remember",lens:1,note:"Goal: copy each figure into the door code (0 = faces you or steps into the light, 1 = turns away or slips into shadow). A candle on the sill means use the Dusk lens.",
+ setup(){this.r=new Reg(4);this.b=[];this.f=[];this.h=[[],[],[],[]];this.c=[0,0,0,0];for(let i=0;i<4;i++){this.b[i]=rnd()<.5?1:0;this.f[i]=rnd()<.5?1:0;if(this.b[i])this.r.g(i,XG);if(this.f[i])this.r.g(i,HG)}},
+ draw(){x.fillStyle="#16101a";x.fillRect(110,150,740,285);x.fillStyle="#100c14";x.beginPath();x.moveTo(90,150);x.lineTo(480,70);x.lineTo(870,150);x.fill();
+  for(let i=0;i<4;i++){const X=170+170*i,rc=[X,200,110,150];x.fillStyle="#3c341e";x.fillRect(...rc);rr(rc,0,"#6e5f3c",4);
+   x.save();x.beginPath();x.rect(...rc);x.clip();ghost(X+55,350,90,"#bebec8",1,0,.55,Math.sin(t*2+i)*4);x.restore();
+   if(this.f[i]){x.fillStyle=BONE;x.fillRect(X+20,340,10,22);x.fillStyle=LAMP;x.beginPath();x.arc(X+25,335,5+Math.sin(t*9+i),0,7);x.fill()}
+   txt(this.h[i].slice(-2).join(" / ")||"unseen",19,"#aaa096",X+55,378,1,140);
+   if(hit(rc)){const o=photo(this.r,i,lens);this.h[i].push(RD[lens][o]);say(`Window ${i+1}: the figure ${RD[lens][o]}.`)}}
+  txt("Door code",21,BONE,250,529);for(let i=0;i<4;i++)btn([330+62*i,506,54,46],String(this.c[i]),()=>{this.c[i]^=1});
+  btn([600,506,180,46],"Try the door",()=>{this.c.join()===this.b.join()?win():hurt("Wrong code. The figures turn to watch you.")},0,0,1)}};
+const Tw={name:"The Twin Lanterns",lens:0,st:0,note:"Goal: make the lanterns agree three times in a row. Bind them at the shrine before every photo.",
+ setup(){this.r=new Reg(2);this.bound=false;this.l=["Z","Z"];if(san===3)this.st=0},
+ draw(){x.fillStyle="#0c1622";x.fillRect(0,430,W,170);x.strokeStyle="#28465a";x.lineWidth=2;for(let k=0;k<6;k++){x.beginPath();x.moveTo(320+k*50,450+k%3*25);x.lineTo(350+k*50,450+k%3*25);x.stroke()}
+  [140,820].forEach((X,i)=>{const ln=(i?-1:1)*(this.bound?14:0);x.fillStyle="#32281e";x.fillRect(X-6,330,12,100);x.strokeStyle="#ffc85a88";x.lineWidth=3;x.beginPath();x.arc(X+ln,315,30,0,7);x.stroke();
+   x.fillStyle=LAMP;x.beginPath();x.moveTo(X+ln,285);x.lineTo(X+ln+12,318);x.lineTo(X+ln,332);x.lineTo(X+ln-12,318);x.fill();txt((this.l[i]==="Z"?"Plain":"Dusk")+" lens",21,BONE,X,445,1)});
+  for(let i=0;i<3;i++){x.fillStyle=i<this.st?LAMP:"#322c32";x.beginPath();x.arc(440+i*40,300,12,0,7);x.fill()}
+  btn([30,506,180,46],"Bind at the shrine",()=>{if(!this.bound){this.r.g(0,HG);this.r.link(0,1);this.bound=true;say("The two flames lean together. They are now bound.")}},this.bound);
+  for(const i of[0,1])btn([225+i*170,506,160,46],`Shore ${"AB"[i]}: ${this.l[i]==="Z"?"Plain":"Dusk"}`,()=>{this.l[i]=this.l[i]==="Z"?"X":"Z"});
+  btn([580,506,240,46],"Photograph both shores",()=>{const was=this.bound&&this.r.w(0)>.49&&this.r.w(3)>.49,a=photo(this.r,0,this.l[0]),b=photo(this.r,1,this.l[1]);this.r=new Reg(2);this.bound=false;
+   say(`A ${RD[this.l[0]][a]}. B ${RD[this.l[1]][b]}. ${a===b?"They agree.":"They disagree."}`);
+   if(a===b&&was){if(++this.st>=3){this.st=0;win()}}else if(a===b)say("They agree, but they weren't bound, so it doesn't count.");else{this.st=0;hurt("The lanterns disagreed, so your streak resets.")}},0,0,1)}};
+const Cr={name:"The Mirror Crossing",lens:0,note:"Goal: get the boat across on all three crossings. Build a route from the steps below. The rusted vane does nothing.",
+ setup(){this.route=[];this.res=[]},
+ draw(){x.fillStyle="#0a1824";x.fillRect(0,430,W,170);x.fillStyle="#5a4632";x.beginPath();x.moveTo(60,420);x.lineTo(180,420);x.lineTo(160,445);x.lineTo(80,445);x.fill();
+  for(let i=0;i<5;i++){const rc=[250+i*100,250,88,60];rr(rc,"#1e1620","#5a505a");if(i<this.route.length)txt(this.route[i],21,BONE,rc[0]+44,rc[1]+30,1)}
+  this.res.forEach((r,i)=>txt(r?"arrived":"stayed",27,r?LAMP:BLOOD,330+i*150,350,1));
+  ["Mirror","Fog bell","Look back"].forEach((n,i)=>btn([20+i*125,506,118,46],n,()=>{if(this.route.length<5)this.route.push(n)}));
+  btn([395,506,90,46],"Clear",()=>{this.route=[];this.res=[]});btn([495,506,130,46],"Rusted vane",()=>{},0,1);
+  btn([640,506,290,46],"Make three crossings",()=>{this.res=[];for(let k=0;k<3;k++){const r=new Reg(1);for(const s of this.route){s==="Mirror"?r.g(0,HG):s==="Fog bell"?r.g(0,ZG):r.look(0,"Z")}this.res.push(r.look(0,"Z")===1)}
+   this.res.every(v=>v)?win():hurt("At least one boat never reached the far shore.")},0,0,1)}};
+const LV=[Sq,Wi,Tw,Cr];
+function center(title,lines,label,fn,col=BONE){txt(title,lv>-1&&title.length>22?62:76,col,W/2,170,1,860);lines.forEach((l,i)=>txt(l,26,"#c8beaf",W/2,262+i*52,1,720));btn([W/2-130,480,260,52],label,fn,1)}
+function frame(now){const dt=Math.min(.05,(now-(frame.l||now))/1000);frame.l=now;t+=dt;ck=click;click=null;
+ if(ck&&!au)ac();
+ if(fd){fade+=fd*420*dt;if(fade>=255){fade=255;fd=-1;after&&after()}else if(fade<=0){fade=0;fd=0}}
+ flash=Math.max(0,flash-dt*3);shake=Math.max(0,shake-dt);
+ x.drawImage(skies[mode==="play"||mode==="dead"?lv:mode==="title"?0:3],0,0);
+ for(const[fx,fy,fw,p]of fog){x.fillStyle="rgba(170,170,190,.1)";x.beginPath();x.ellipse(((fx+t*12+Math.sin(t*.3+p)*40)%(W+fw))-fw/2,fy,fw/2,40,0,0,7);x.fill()}
+ x.save();if(shake>0)x.translate((Math.random()-.5)*14*shake,(Math.random()-.5)*14*shake);
+ if(mode==="title")center("The Village That Looks Back",["Your car died at the edge of the fog. The village ahead is empty, but its figures freeze whenever you raise your camera.","Take the picture. Hope reality agrees."],"Enter the village",start);
+ else if(mode==="dead")center("The village keeps you",["The street rearranges itself around you. Wake up and try again."],"Wake up",start,BLOOD);
+ else if(mode==="end")center("You step off the island",["A photograph makes something settle on one answer, and it stays that way. Which lens you choose decides what you can be sure of.","Two lanterns bound together agree when you look at them the same way. Doing steps in the right order can make an answer certain, and peeking halfway ruins it."],"Walk away",()=>{mode="title";lv=0});
+ else{const L=LV[lv];L.draw();txt(`${lv+1}. ${L.name}`,32,BONE,20,28);for(let i=0;i<3;i++)heart(856+i*22,64,i<san);txt(L.note,18,"#a89e92",20,566,0,920);
+  log.forEach((m,i)=>txt(m,22,i?"#827878":BONE,20,78+i*26));
+  if(L.lens){btn([700,8,110,36],"Plain lens",()=>{lens="Z"},lens==="Z");btn([820,8,110,36],"Dusk lens",()=>{lens="X"},lens==="X")}}
+ x.restore();x.fillStyle=vg;x.fillRect(0,0,W,HH);
+ if(flash>0){x.globalAlpha=.6*flash;x.fillStyle=flashC;x.fillRect(0,0,W,HH);x.globalAlpha=1}
+ if(fade>0){x.globalAlpha=fade/255;x.fillStyle="#000";x.fillRect(0,0,W,HH);x.globalAlpha=1;if(mode==="play"&&fd)txt(`${lv+1}. ${LV[lv].name}`,52,BONE,W/2,HH/2,1)}
+ requestAnimationFrame(frame)}
+cv.addEventListener("pointerdown",e=>{const r=cv.getBoundingClientRect();click=[(e.clientX-r.left)*W/r.width,(e.clientY-r.top)*HH/r.height];mouse=click});
+cv.addEventListener("pointermove",e=>{const r=cv.getBoundingClientRect();mouse=[(e.clientX-r.left)*W/r.width,(e.clientY-r.top)*HH/r.height]});
+addEventListener("keydown",e=>{if(e.key==="Tab"){e.preventDefault();lens=lens==="Z"?"X":"Z"}if(e.key==="m")document.getElementById("mu").click()});
+requestAnimationFrame(frame);
+</script></body></html>
